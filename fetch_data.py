@@ -1,82 +1,80 @@
 import time
+import json
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
 
-# target URL
+# Target URL
 url = "https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie/mazowieckie/warszawa/warszawa/warszawa"
 
 print("Launching Undetected Chrome via Selenium...")
 
-# configure undetected chrome options
+# Configure undetected chrome options
 options = uc.ChromeOptions()
 options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_argument("--start-maximized")
 
 try:
-    # launch uc browser
+    # Launch browser in visible mode
     driver = uc.Chrome(options=options, headless=False)
 
     print(f"Entering the site: {url}")
     driver.get(url)
 
-    # wait for the page to fully load dynamic content
-    print("I'm waiting for the page...")
+    # Wait for the initial page structure to load
+    print("Waiting for page source...")
     time.sleep(7)
 
-    # save a screenshot and HTML source for debugging 
-    driver.save_screenshot("page_view.png")
-    with open("page.html", "w", encoding="utf-8") as f:
-        f.write(driver.page_source)
-    print("Save page_view.png and page.html to project folder.")
-
-    # extract HTML source after the page loads
+    # Extract HTML source
     html_source = driver.page_source
-    # parse HTML with BeautifulSoup
     soup = BeautifulSoup(html_source, 'html.parser')
 
-    # find all listings titles using the data-cy attribute
-    listings = soup.find_all('article', attrs={"data-cy": "listing-item"})
+    # Find the hidden JSON-LD script containing all listings data
+    json_script = soup.find('script', type='application/ld+json')
 
-    print("-" * 30)
-    print(f"Success! Found {len(listings)} on the site.")
-    print("-" * 30)
-
-    # print each title text
-    for item in listings:
-        # obtain the title
-        title_tag = item.find('p', attrs={"data-cy": "listing-item-title"})
-        title = title_tag.text.strip() if title_tag else "No title found."
-
-        # obtain total price
-        price_tag = item.find('span', attrs={"data-cy": "listing-item-price"})
-        price = price_tag.text.strip() if price_tag else "No price found."
-
-        # obtain price per meter
-        price_per_m_tag = item.find('span', class_=lambda c: c and 'css-19v76f8' in c)
-        if not price_per_m_tag:
-            # alternative search for text containing "zł/m²"
-            price_per_m_tag = item.find(string=lambda text: text and "zł/m²" in text)
-
-        price_per_m = price_per_m_tag.strip() if price_per_m_tag else "No information found."
-
-        # extract the link to the advertisement
-        link_tag = item.find('a', attrs={"data-cy": "listing-item-link"})
-        href = link_tag['href'] if link_tag else ""
-
-        # Ototdom sometimes privides relative links (pl/oferta/...), you need to add a domain
-        full_link = f"https://www.otodom.pl{href}" if href.startswith('/') else href
-
-        # display a formatted set of data in the console
-        print(f"TITLE: {title}")
-        print(f"PRICE: {price}")
-        print(f"LINK: {price} ({price_per_m})")
-        print("-" * 50)
+    if json_script:
+        # Parse the raw text into a Python dictionary
+        data = json.loads(json_script.string)
+        
+        # Navigate through the schema graph to find the Product info
+        graph = data.get('@graph', [])
+        product_data = next((item for item in graph if item.get('@type') == 'Product'), None)
+        
+        if product_data and 'offers' in product_data:
+            offers_list = product_data['offers'].get('offers', [])
+            
+            print("-" * 50)
+            print(f"Success! Extracted {len(offers_list)} listings from structural JSON data.")
+            print("-" * 50)
+            
+            # Loop through each offer inside the JSON data
+            for offer in offers_list:
+                title = offer.get('name', 'No title found.')
+                price = offer.get('price', 'No price found.')
+                link = offer.get('url', 'No link found.')
+                
+                # Extract price per square meter if available
+                price_spec = offer.get('priceSpecification', {})
+                price_per_m = price_spec.get('price', 'No info')
+                
+                # Format price fields nicely
+                formatted_price = f"{price} PLN" if isinstance(price, (int, float)) else price
+                formatted_price_per_m = f"{price_per_m} zł/m²" if isinstance(price_per_m, (int, float)) else price_per_m
+                
+                # Print result set to console
+                print(f"🏠 TITLE: {title}")
+                print(f"💰 PRICE: {formatted_price} ({formatted_price_per_m})")
+                print(f"🔗 LINK:  {link}")
+                print("-" * 50)
+        else:
+            print("Error: Could not find the 'Product' section inside the JSON object.")
+    else:
+        print("Error: Could not find <script type='application/ld+json'> in the page source.")
 
 except Exception as e:
-    # catch any running errors
-    print(f"An error occurred: {e}")
+    print(f"An error occurred during execution: {e}")
 
 finally:
-    # ensure the browser is closed even if an error ocured
     if 'driver' in locals():
         print("Closing the browser...")
         driver.quit()
