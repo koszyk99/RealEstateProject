@@ -29,9 +29,6 @@ def convert_csv_to_excel(csv_filename: str, excel_filename: str):
 
     # Fill empty text cells with clear indicators
     df['Rooms'] = df['Rooms'].fillna('N/A').astype(str).str.strip()
-    df['Floor'] = df['Floor'].fillna('N/A').astype(str).str.strip()
-    df['Build Year'] = df['Build Year'].fillna('N/A').astype(str).str.strip()
-    df['Ownership'] = df['Ownership'].fillna('N/A').astype(str).str.strip()
 
     # EXPORT TO EXCEL
     print(f"[EXCEL] Writing clean dataset to {excel_filename}...")
